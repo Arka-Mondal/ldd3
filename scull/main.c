@@ -27,11 +27,13 @@
 #include <linux/errno.h>          // error codes
 #include <linux/types.h>
 #include <linux/fcntl.h>          // O_ACCMODE
+#include <linux/seq_file.h>
 #include <linux/cdev.h>
 
 #include <linux/uaccess.h>        // copy_(from|to)_user
 
 #include "scull.h"
+#include "proc_ops_version.h"     // proc_ops_wrapper() - macro
 
 // parameters which can be set at load time
 unsigned int scull_major = SCULL_MAJOR;
@@ -86,6 +88,120 @@ int scull_trim(struct scull_dev * dev)
 
   return 0;
 }
+
+#ifdef SCULL_DEBUG    // use proc file only if in debugging mode
+
+/*
+ * Sequnce iteration methods. The "position" is simply
+ * the scull device number.
+ */
+
+static void * scull_seq_start(struct seq_file * sfile, loff_t * pos)
+{
+  if (*pos >= scull_nr_devs)
+    return NULL;
+
+  return scull_devices + *pos;
+}
+
+static void * scull_seq_next(struct seq_file * sfile, void * v, loff_t * pos)
+{
+  (*pos)++;
+
+  if (*pos >= scull_nr_devs)
+    return NULL;
+
+  return scull_devices + *pos;
+}
+
+static int scull_seq_show(struct seq_file * sfile, void * v)
+{
+  int i;
+  struct scull_dev * dev;
+  struct scull_qset * qset;
+
+  dev = (struct scull_dev *) v;
+
+  if (mutex_lock_interruptible(&dev->mtx_lock))
+    return -ERESTARTSYS;
+
+  seq_printf(sfile, "Device %u: qset: %u, quantum: %u, size: %lu\n",
+              (unsigned int) (dev - scull_devices), dev->qset, dev->quantum, dev->size);
+
+  for (qset = dev->data; qset != NULL, qset = qset->next)
+  {
+    seq_printf(sfile, "\titem at %p, qset %p\n", qset, qset->data);
+
+    if ((qset->data != NULL) && (qset->next == NULL)) // dump only the last item
+    {
+      for (i = 0; i < dev->qset; i++)
+      {
+        if (qset->data[i] != NULL)
+          seq_printf(sfile, "\t\t%4d: %8p\n", i, dev->data[i]);
+      }
+    }
+  }
+
+  seq_putc(sfile, '\n');
+  mutex_unlock(&dev->mtx_lock);
+
+  return 0;
+}
+
+static void scull_seq_stop(struct seq_file * sfile, void * v)
+{
+  return;
+}
+
+// Connect the sequnce operators
+static struct seq_operations scull_seq_ops = {
+  .start = scull_seq_start,
+  .next = scull_seq_next,
+  .show = scull_seq_show,
+  .stop = scull_seq_stop
+};
+
+
+/*
+ * To implement the /proc file we need only to make
+ * an open method which sets up the sequnce operators.
+ */
+
+static int scullseq_proc_open(struct inode * inode, struct file * file)
+{
+  return seq_open(file, &scull_seq_ops);
+}
+
+// Add a set of file operations to the proc files.
+static struct file_operations scullseq_proc_ops = {
+  .owner        = THIS_MODULE,
+  .open         = scullseq_proc_open,
+  .read         = seq_read,
+  .llseek       = seq_lseek,
+  .release      = seq_release
+};
+
+/*
+ * Create the actual /proc file.
+ */
+
+static void scull_create_proc(void)
+{
+  proc_create("scullseq", 0 /* default mode */, NULL /* parent dir */,
+                proc_ops_wrapper(&scullseq_proc_ops, scullseq_proc_ops_n));
+}
+
+/*
+ * Remove the /proc file
+ */
+
+static void scull_remove_proc(void)
+{
+  // no problem if it was not previously registered
+  remove_proc_entry("scullseq", NULL /* parent dir */);
+}
+
+#endif /* SCULL_DEBUG */
 
 /*
  * scull_open - open the scull device
@@ -406,6 +522,10 @@ static void scull_cleanup_module(void)
     kfree(scull_devices);
   }
 
+#ifdef SCULL_DEBUG
+  scull_remove_proc();
+#endif
+
   // cleanup_module is never called if registering failed
   unregister_chrdev_region(devno, scull_nr_devs);
 }
@@ -453,6 +573,10 @@ static int __init scull_init_module(void)
     mutex_init(&scull_devices[i].mtx_lock);
     scull_setup_cdev(scull_devices + i, i);
   }
+
+#ifdef SCULL_DEBUG
+  scull_create_proc();
+#endif
 
   return 0;
 

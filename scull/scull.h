@@ -52,11 +52,11 @@
  */
 
 #ifndef SCULL_QUANTUM
-#define SCULL_QUANTUM 4000  // 4096
+#define SCULL_QUANTUM 4000
 #endif
 
 #ifndef SCULL_QSET
-#define SCULL_QSET 1000     // 1024
+#define SCULL_QSET 1000
 #endif
 
 // scull quantum set
@@ -67,8 +67,8 @@ struct scull_qset {
 
 struct scull_dev {
   struct scull_qset * data; // pinter to the first quantum set
-  unsigned int quantum;    // the current quantum size
-  unsigned int qset;       // the current array size
+  unsigned int quantum;     // the current quantum size
+  unsigned int qset;        // the current array size
   unsigned long size;       // the amount of data stored in this deivce
   unsigned int access_key;  // used by sculluid and scullpriv
   struct mutex mtx_lock;    // mutual exclusion lock

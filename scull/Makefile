@@ -15,12 +15,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Comment/uncomment the following line to disable/enable debugging
+# DEBUG := y
 
-# if KERNELRELEASE is defined, we've been invoked from the
+ifeq ($(DEBUG),y)
+	DEBUG_FLAGS := -Og -g -DSCULL_DEBUG
+else
+	DEBUG_FLAGS := -O2
+endif
+
+# If KERNELRELEASE is defined, we've been invoked from the
 # kernel build system and can use its language.
 ifneq ($(KERNELRELEASE),)
 # In kbuild contex
-scull-objs := main.o
+ccflags-y += $(DEBUG_FLAGS)
+
+scull-y := main.o
 obj-m := scull.o
 
 # Otherwise we were called directly from the command line;
